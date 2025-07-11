@@ -247,21 +247,62 @@ async fn generate(
     Ok((content_type, stream))
 }
 
-#[get("/", rank = 0)]
-fn index() -> RawHtml<TextStream![String]> {
+#[get("/")]
+pub fn index() -> RawHtml<TextStream![String]> {
     RawHtml(TextStream! {
-        yield format!("<!DOCTYPE HTML><html><body><h2>Welcome to web2025! What follows is the index of the entire site, this is streamed and may take a while to completely generate...</h2>");
+        // HTML head
+        yield r#"<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Web2050 Index</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen flex items-center justify-center px-4 py-8">
+<main class="w-full max-w-2xl">
+<header class="mb-8 text-center">
+    <h1 class="text-4xl font-bold text-blue-500">Web2050 Index</h1>
+    <p class="text-gray-400 mt-2">
+        Search the index of all available AI-generated pages.
+    </p>
+</header>
+<section class="mb-6">
+    <input
+        type="text"
+        id="search-input"
+        placeholder="Search..."
+        class="w-full p-3 rounded-lg border border-gray-700 bg-gray-800 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+    />
+</section>
+<ul id="index-list" class="space-y-2">
+"#.to_string();
 
-        yield "<ul>".to_string();
-
+        // Directory listing
         for entry in WalkDir::new("internet").into_iter().flatten().skip(1) {
             if let Ok(path) = entry.path().strip_prefix("internet") {
                 let path = path.to_string_lossy();
-                yield format!("<li><a href='/{path}'>{path}</a></li>");
+                yield format!(
+                    r#"<li class="index-item" data-path="{0}">
+    <a href="/{0}" class="block p-3 rounded-md bg-gray-800 hover:bg-gray-700 text-blue-500 transition-colors">{0}</a>
+</li>"#, path);
             }
         }
 
-        yield "</ul></body></html>".to_string();
+        // Close HTML
+        yield r#"</ul></main><script>
+document.addEventListener('DOMContentLoaded', () => {
+    const searchInput = document.getElementById('search-input');
+    const items = document.querySelectorAll('.index-item');
+
+    searchInput.addEventListener('input', () => {
+        const query = searchInput.value.toLowerCase();
+        items.forEach(item => {
+            const text = item.getAttribute('data-path').toLowerCase();
+            item.style.display = text.includes(query) ? '' : 'none';
+        });
+    });
+});</script></body></html>"#.to_string();
     })
 }
 
@@ -271,7 +312,7 @@ fn rocket() -> _ {
 
     rocket::build()
         .manage(gen_map)
-        .attach(csp::CSPFairing)
+        //.attach(csp::CSPFairing)
         .mount("/", FileServer::from("internet").rank(1))
         .mount("/", routes![index, generate])
 }

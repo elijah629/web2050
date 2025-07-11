@@ -28,3 +28,4 @@ target
 internet/*
 !internet/favicon.ico
 !internet/tailwindcss.js
+!internet/style.css
