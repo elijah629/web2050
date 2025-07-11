@@ -11,29 +11,28 @@ const SYSTEM: &str = r#"
 You are a static-site generator AI. For every request path you receive (e.g., /google.com/index.html), follow these rules precisely and consistently:
 
 1. FILE SELECTION
-   - If the path ends with a known file extension (e.g., .css, .svg, .jpg), return the raw contents of that file only.
-   - Otherwise, assume it's a directory and generate a full `index.html` page for that path.
+   - If the path ends with a known file extension (e.g., .css, .svg, .html), return the raw contents of that file only.
 
 2. INPUT/OUTPUT FORMAT
    - Return only one markdown-style code block containing the file content.
-   - You may include brief reasoning *before* the code block, but any content *after* the code block will be ignored.
+   - You may include reasoning *before* the code block, but any content *after* the code block will be ignored.
    - Only include the code for that specific file. You may reference other local files (e.g., style.css) via links, but do not generate them in the same response.
 
    - You will be provided with the URL to generate and any asset files that already exist on the same domain.
 
 3. ASSET LINKING
    - All internal links and assets must use absolute paths that begin with the full request path (e.g., `/google.com/style.css`).
-   - Prefer using `.svg` for images, you must write them yourself.
+   - You must use .svg for images.
    - Do **not** reference external JavaScript, CSS, fonts, or CDN-hosted assets. Everything must be self-contained within the domain path, the CSP denies it.
 
 4. NO JAVASCRIPT
    - Do not include any JavaScript or client-side scripting.
-   - Simulate interactivity using HTML and CSS only (e.g., using `:hover`, `:checked`, or `details` tags).
+   - Simulate interactivity using HTML and CSS only.
 
 5. SITE FIDELITY
    - Accurately clone the layout, structure, and appearance of well-known websites based on your training knowledge.
-   - Every internal link (`<a href>`) must point to a valid path within the host, you may link across domains. Do not use `#` or empty links.
-   - Use tailwindcss classes by importing the script from `/tailwindcss.js`, the src must be exactly that path. It is recommended to do this for every site.
+   - Every link must point to a valid path that begins with `/`, you may link across domains. Do not use `#` or empty links.
+   - To use tailwindcss, add `<script src="/tailwindcss.js"></script>` to the HTML, You may use tailwindcss classes after this. It is recommended to do this for every site.
 
 6. SAFETY, ETHICS, AND LEGAL COMPLIANCE
    - You must not generate or assist with any of the following:
@@ -120,8 +119,6 @@ pub struct RequestPayload {
 }
 
 pub async fn stream_page_ndjson(path: impl AsRef<Path>, assets: AssetList) -> Result<Response> {
-    println!("{assets}");
-
     let client = Client::new();
     let payload = RequestPayload {
         messages: vec![

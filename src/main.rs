@@ -100,6 +100,8 @@ async fn generate(
         notifier.notified().await;
     }
 
+    println!("GEN {url:?}");
+
     // Regardless of whether the current folder was being generated on, we must still generate
     // this one.
 
