@@ -73,6 +73,10 @@ async fn generate(
         (_, Some(ext)) => (url.clone(), ext.to_string_lossy()),
     };
 
+    if url.as_os_str().len() > 64 {
+        return Err(Status::UriTooLong);
+    }
+
     if let Cow::Borrowed("map") = extension {
         return Err(Status::BadRequest);
     }
@@ -151,93 +155,75 @@ async fn generate(
     tokio::spawn(async move {
         let mut writer = BufWriter::new(file);
 
-        let mut in_code_block = false;
-        let mut code_block_started = false;
-        let mut code_block_ended = false;
-        let mut buffer = String::new();
-        let mut skip_until_newline = false;
-
         let _guard = guard; // Pull the guard into this scope, when the stream ends, the guard gets
         // dropped;
+
+        let mut in_code_block = false;
+        let mut tag_buffer = String::new();
+        const MAX_TAG_LEN: usize = 7; // Length of "</code>"
 
         while let Ok(Some(item)) = lines.next_line().await {
             if let Ok(json) = serde_json::from_str::<AIResponse>(&item) {
                 let choice = &json.choices[0];
-
                 if choice.finish_reason.is_some() {
                     writer.flush().await.unwrap();
                     break;
                 }
-
                 let delta = choice
                     .delta
                     .content
                     .as_ref()
                     .expect("no delta but response has not finished streaming");
 
-                print!("{delta}");
+                // Combine previous buffer with new delta
+                tag_buffer.push_str(delta);
 
-                if code_block_ended {
-                    continue;
-                }
-
-                buffer.push_str(delta);
-
-                while let Some(pos) = buffer.find("```") {
-                    if !code_block_started {
-                        // Found the opening delimiter
+                if !in_code_block {
+                    // Look for opening tag
+                    // This minimizes buffer size and is not nessicary for function
+                    // setting in_code_block is nessicary
+                    if let Some(pos) = tag_buffer.find("<code>") {
                         in_code_block = true;
-                        code_block_started = true;
-                        skip_until_newline = true;
-                        buffer.drain(..pos + 3); // remove up to and including the delimiter
-                    } else if in_code_block {
-                        // Found the closing delimiter
-                        in_code_block = false;
-                        code_block_ended = true;
-                        let content = buffer[..pos].to_string();
-                        for line in content.lines() {
-                            let line = format!("{line}\n");
-                            let _ = writer.write_all(line.as_bytes()).await; // TODO: Error the
-                            // entire request
-                            let _ = tx.send(line).await;
-                        }
-                        break;
+                        // Remove everything up to and including the tag
+                        tag_buffer.drain(..pos + 6);
                     } else {
-                        break;
-                    }
-                }
-
-                if in_code_block && !code_block_ended {
-                    if skip_until_newline {
-                        if let Some(pos) = buffer.find('\n') {
-                            buffer.drain(..=pos);
-                            skip_until_newline = false;
-                        } else {
-                            // Wait for full newline
-                            continue;
+                        // Keep only the tail that might contain partial tag
+                        if tag_buffer.len() > MAX_TAG_LEN {
+                            tag_buffer.drain(..tag_buffer.len() - MAX_TAG_LEN);
                         }
                     }
+                } else {
+                    // Look for closing tag
+                    if let Some(pos) = tag_buffer.find("</code>") {
+                        // Send everything before the closing tag
+                        if pos > 0 {
+                            let content = &tag_buffer[..pos];
+                            let _ = writer.write_all(content.as_bytes()).await;
+                            let _ = tx.send(content.to_string()).await;
+                        }
+                        in_code_block = false;
+                        // Remove everything up to and including the tag
+                        tag_buffer.drain(..pos + 7);
+                    } else {
+                        // Send all but the tail (which might contain partial closing tag)
+                        if tag_buffer.len() > MAX_TAG_LEN {
+                            let send_len = tag_buffer.len() - MAX_TAG_LEN;
 
-                    let lines: Vec<&str> = buffer.lines().collect();
-                    let mut line_start = 0;
-                    for (i, line) in lines.iter().enumerate() {
-                        if i < lines.len() - 1 {
-                            let line = format!("{line}\n");
-                            let _ = writer.write_all(line.as_bytes()).await; // TODO: Error the
-                            // entire request
-                            line_start += line.len();
-                            let _ = tx.send(line).await;
+                            let content = &tag_buffer[..send_len];
+                            let _ = writer.write_all(content.as_bytes()).await;
+                            let _ = tx.send(content.to_string()).await;
+
+                            tag_buffer.drain(..send_len);
                         }
                     }
-                    buffer.drain(..line_start);
                 }
             }
         }
     });
 
     let stream = TextStream! {
-        while let Some(line) = rx.recv().await {
-            yield line;
+        while let Some(delta) = rx.recv().await {
+            yield delta;
         }
     };
 
@@ -250,59 +236,16 @@ async fn generate(
 #[get("/")]
 pub fn index() -> RawHtml<TextStream![String]> {
     RawHtml(TextStream! {
-        // HTML head
-        yield r#"<!DOCTYPE html>
-<html lang="en" class="dark">
-<head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Web2050 Index</title>
-    <link rel="stylesheet" href="/style.css">
-</head>
-<body class="bg-gray-950 text-gray-100 min-h-screen flex items-center justify-center px-4 py-8">
-<main class="w-full max-w-2xl">
-<header class="mb-8 text-center">
-    <h1 class="text-4xl font-bold text-blue-500">Web2050 Index</h1>
-    <p class="text-gray-400 mt-2">
-        Search the index of all available AI-generated pages.
-    </p>
-</header>
-<section class="mb-6">
-    <input
-        type="text"
-        id="search-input"
-        placeholder="Search..."
-        class="w-full p-3 rounded-lg border border-gray-700 bg-gray-800 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-    />
-</section>
-<ul id="index-list" class="space-y-2">
-"#.to_string();
+        yield r#"<!DOCTYPE html><html lang="en" class="dark"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><title>web2050</title><link rel="stylesheet" href="/style.css"></head><body class="bg-gray-950 text-gray-100 min-h-screen flex items-center justify-center px-4 py-8"><main class="w-full max-w-2xl"><header class="mb-8 text-center"><h1 class="text-4xl font-bold text-blue-500">web2050 Index</h1><p class="text-gray-400 mt-2"Append any url minus the protocol (https://) to the end of this url (e.hackclub.app) and watch an AI magically generate it in real time!></p><p class="text-gray-400 mt-2">Search the index of all available AI-generated pages.</p></header><section class="mb-6"><input type="text" id="search-input" placeholder="Search..." class="w-full p-3 rounded-lg border border-gray-700 bg-gray-800 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"/></section><ul id="index-list" class="space-y-2">"#.to_string();
 
-        // Directory listing
         for entry in WalkDir::new("internet").into_iter().flatten().skip(1) {
             if let Ok(path) = entry.path().strip_prefix("internet") {
                 let path = path.to_string_lossy();
-                yield format!(
-                    r#"<li class="index-item" data-path="{0}">
-    <a href="/{0}" class="block p-3 rounded-md bg-gray-800 hover:bg-gray-700 text-blue-500 transition-colors">{0}</a>
-</li>"#, path);
+                yield format!(r#"<li class="index-item" data-path="{0}"><a href="/{0}" class="block p-3 rounded-md bg-gray-800 hover:bg-gray-700 text-blue-500 transition-colors">{0}</a></li>"#, path);
             }
         }
 
-        // Close HTML
-        yield r#"</ul></main><script>
-document.addEventListener('DOMContentLoaded', () => {
-    const searchInput = document.getElementById('search-input');
-    const items = document.querySelectorAll('.index-item');
-
-    searchInput.addEventListener('input', () => {
-        const query = searchInput.value.toLowerCase();
-        items.forEach(item => {
-            const text = item.getAttribute('data-path').toLowerCase();
-            item.style.display = text.includes(query) ? '' : 'none';
-        });
-    });
-});</script></body></html>"#.to_string();
+        yield r#"</ul></main><script>document.addEventListener("DOMContentLoaded",()=>{const e=document.getElementById("search-input"),t=document.querySelectorAll(".index-item");e.addEventListener("input",()=>{const n=e.value.toLowerCase();t.forEach(e=>{const t=e.getAttribute("data-path").toLowerCase();e.style.display=t.includes(n)?"":"none"})})})</script></body></html>"#.to_string();
     })
 }
 
@@ -312,7 +255,7 @@ fn rocket() -> _ {
 
     rocket::build()
         .manage(gen_map)
-        //.attach(csp::CSPFairing)
+        .attach(csp::CSPFairing)
         .mount("/", FileServer::from("internet").rank(1))
         .mount("/", routes![index, generate])
 }
