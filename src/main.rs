@@ -2,15 +2,15 @@
 
 use futures_util::TryStreamExt;
 use jwalk::WalkDir;
-use rocket::State;
 use rocket::fs::FileServer;
 use rocket::http::{ContentType, Status};
 use rocket::response::content::RawHtml;
 use rocket::response::stream::TextStream;
 use rocket::tokio::fs::File;
 use rocket::tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
-use rocket::tokio::sync::{Mutex, Notify};
+use rocket::tokio::sync::{Mutex, Notify, mpsc};
 use rocket::tokio::{fs, task};
+use rocket::{State, tokio};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -134,12 +134,6 @@ async fn generate(
 
     let mut lines = BufReader::new(stream_reader).lines();
 
-    let mut in_code_block = false;
-    let mut code_block_started = false;
-    let mut code_block_ended = false;
-    let mut buffer = String::new();
-    let mut skip_until_newline = false;
-
     // RAII guard that, on drop, removes the key from the map and notifies that the req is
     // done.
     let guard = GenerationGuard {
@@ -151,9 +145,18 @@ async fn generate(
     let file = File::create(Path::new("internet").join(url))
         .await
         .map_err(|_| Status::InternalServerError)?;
-    let mut writer = BufWriter::new(file);
 
-    let stream = TextStream! {
+    let (tx, mut rx) = mpsc::channel::<String>(32);
+
+    tokio::spawn(async move {
+        let mut writer = BufWriter::new(file);
+
+        let mut in_code_block = false;
+        let mut code_block_started = false;
+        let mut code_block_ended = false;
+        let mut buffer = String::new();
+        let mut skip_until_newline = false;
+
         let _guard = guard; // Pull the guard into this scope, when the stream ends, the guard gets
         // dropped;
 
@@ -166,7 +169,13 @@ async fn generate(
                     break;
                 }
 
-                let delta = choice.delta.content.as_ref().expect("no delta but response has not finished streaming");
+                let delta = choice
+                    .delta
+                    .content
+                    .as_ref()
+                    .expect("no delta but response has not finished streaming");
+
+                print!("{delta}");
 
                 if code_block_ended {
                     continue;
@@ -188,9 +197,9 @@ async fn generate(
                         let content = buffer[..pos].to_string();
                         for line in content.lines() {
                             let line = format!("{line}\n");
-                            writer.write_all(line.as_bytes()).await.unwrap(); // TODO: Error the
+                            let _ = writer.write_all(line.as_bytes()).await; // TODO: Error the
                             // entire request
-                            yield line;
+                            let _ = tx.send(line).await;
                         }
                         break;
                     } else {
@@ -214,18 +223,22 @@ async fn generate(
                     for (i, line) in lines.iter().enumerate() {
                         if i < lines.len() - 1 {
                             let line = format!("{line}\n");
-                            writer.write_all(line.as_bytes()).await.unwrap(); // TODO: Error the
+                            let _ = writer.write_all(line.as_bytes()).await; // TODO: Error the
                             // entire request
                             line_start += line.len();
-                            yield line;
+                            let _ = tx.send(line).await;
                         }
                     }
                     buffer.drain(..line_start);
                 }
             }
         }
+    });
 
-        // Drop guard
+    let stream = TextStream! {
+        while let Some(line) = rx.recv().await {
+            yield line;
+        }
     };
 
     // Must default to HTML because .com is technically an extension
