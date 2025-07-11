@@ -1,0 +1,13 @@
+[package]
+name = "wifi"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+futures-util = "0.3.31"
+jwalk = "0.8.1"
+reqwest = { version = "0.12.22", default-features = false, features = [ "rustls-tls", "stream", "json" ] }
+rocket = "0.5.1"
+serde = "1.0.219"
+serde_json = "1.0.140"
+tokio-util = "0.7.15"
