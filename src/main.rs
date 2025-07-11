@@ -11,6 +11,7 @@ use rocket::tokio::fs::File;
 use rocket::tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use rocket::tokio::sync::{Mutex, Notify};
 use rocket::tokio::{fs, task};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -21,6 +22,7 @@ use crate::ai::AIResponse;
 
 mod ai;
 mod assets;
+mod csp;
 
 #[macro_use]
 extern crate rocket;
@@ -71,6 +73,10 @@ async fn generate(
         (_, Some(ext)) => (url.clone(), ext.to_string_lossy()),
     };
 
+    if let Cow::Borrowed("map") = extension {
+        return Err(Status::BadRequest);
+    }
+
     let key = url
         .parent()
         .expect("cannot reach generator with no parent")
@@ -91,9 +97,7 @@ async fn generate(
     };
 
     if !we_are_the_inserter {
-        println!("WAITING");
         notifier.notified().await;
-        println!("DONE");
     }
 
     // Regardless of whether the current folder was being generated on, we must still generate
@@ -147,7 +151,7 @@ async fn generate(
         .map_err(|_| Status::InternalServerError)?;
     let mut writer = BufWriter::new(file);
 
-    let text_stream = TextStream! {
+    let stream = TextStream! {
         let _guard = guard; // Pull the guard into this scope, when the stream ends, the guard gets
         // dropped;
 
@@ -223,15 +227,15 @@ async fn generate(
     };
 
     // Must default to HTML because .com is technically an extension
-    let ct = ContentType::from_extension(&extension).unwrap_or(ContentType::HTML);
+    let content_type = ContentType::from_extension(&extension).unwrap_or(ContentType::HTML);
 
-    Ok((ct, text_stream))
+    Ok((content_type, stream))
 }
 
 #[get("/", rank = 0)]
 fn index() -> RawHtml<TextStream![String]> {
     RawHtml(TextStream! {
-        yield format!("<h2>Welcome to web2025! What follows is the index of the entire site, this is streamed and may take a while to completely generate...</h2>");
+        yield format!("<!DOCTYPE HTML><html><body><h2>Welcome to web2025! What follows is the index of the entire site, this is streamed and may take a while to completely generate...</h2>");
 
         yield "<ul>".to_string();
 
@@ -242,7 +246,7 @@ fn index() -> RawHtml<TextStream![String]> {
             }
         }
 
-        yield "</ul>".to_string();
+        yield "</ul></body></html>".to_string();
     })
 }
 
@@ -252,6 +256,7 @@ fn rocket() -> _ {
 
     rocket::build()
         .manage(gen_map)
+        .attach(csp::CSPFairing)
         .mount("/", FileServer::from("internet").rank(1))
         .mount("/", routes![index, generate])
 }

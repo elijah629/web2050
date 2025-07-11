@@ -27,3 +27,4 @@ target
 # Internet
 internet/*
 !internet/favicon.ico
+!internet/tailwindcss.js
