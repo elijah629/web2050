@@ -11,7 +11,6 @@ use rocket::tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use rocket::tokio::sync::{Mutex, Notify, mpsc};
 use rocket::tokio::{fs, task};
 use rocket::{State, tokio};
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -68,17 +67,19 @@ async fn generate(
     // request should HANG until index.html is done
     // REQ /google.com/assets/icon.svg - Hang like above, since this req is on the same common route, /
 
-    let (url, extension) = match (url.components().count(), url.extension()) {
-        (1, _) | (_, None) => (url.join("index.html"), "html".into()),
-        (_, Some(ext)) => (url.clone(), ext.to_string_lossy()),
+    let extension = url.extension().and_then(|x| x.to_str());
+
+    if let Some("map") = extension {
+        return Err(Status::BadRequest);
+    }
+
+    let (url, extension) = match (url.components().count(), extension) {
+        (1, _) | (_, None) => (url.join("index.html"), "html"),
+        (_, Some(ext)) => (url.clone(), ext),
     };
 
     if url.as_os_str().len() > 64 {
         return Err(Status::UriTooLong);
-    }
-
-    if let Cow::Borrowed("map") = extension {
-        return Err(Status::BadRequest);
     }
 
     let key = url
@@ -116,9 +117,10 @@ async fn generate(
         .expect("cannot reach generator with empty path");
 
     // Create all the folders
-    fs::create_dir_all(&parent_fs_path)
-        .await
-        .map_err(|_| Status::InternalServerError)?;
+    fs::create_dir_all(&parent_fs_path).await.map_err(|e| {
+        eprintln!("{e}");
+        Status::InternalServerError
+    })?;
 
     // Fetch all assets relating to the domain. We should wait, but it is unlikely that a request
     // to a/b happens while a request to a is already happening.
@@ -127,11 +129,15 @@ async fn generate(
     // the current route, and only include an abstract tree..
     let assets = assets::read_all_files_in_dir(&fs_domain)
         .await
-        .map_err(|_| Status::InternalServerError)?;
+        .map_err(|e| {
+            eprintln!("{e}");
+            Status::InternalServerError
+        })?;
 
-    let resp = ai::stream_page_ndjson(&url, assets)
-        .await
-        .map_err(|_| Status::InternalServerError)?;
+    let resp = ai::stream_page_ndjson(&url, assets).await.map_err(|e| {
+        eprintln!("{e}");
+        Status::InternalServerError
+    })?;
 
     let stream = resp.bytes_stream();
     let stream_reader = StreamReader::new(stream.map_err(std::io::Error::other));
@@ -148,7 +154,10 @@ async fn generate(
 
     let file = File::create(Path::new("internet").join(url))
         .await
-        .map_err(|_| Status::InternalServerError)?;
+        .map_err(|e| {
+            eprintln!("{e}");
+            Status::InternalServerError
+        })?;
 
     let (tx, mut rx) = mpsc::channel::<String>(32);
 
@@ -166,11 +175,13 @@ async fn generate(
             if let Ok(json) = serde_json::from_str::<AIResponse>(&item) {
                 let choice = &json.choices[0];
                 if choice.finish_reason.is_some() {
-                    writer.flush().await.unwrap();
+                    let _ = writer.flush().await;
                     break;
                 }
                 let delta = choice
                     .delta
+                    .as_ref()
+                    .expect("delta since streaming")
                     .content
                     .as_ref()
                     .expect("no delta but response has not finished streaming");
@@ -201,9 +212,12 @@ async fn generate(
                             let _ = writer.write_all(content.as_bytes()).await;
                             let _ = tx.send(content.to_string()).await;
                         }
-                        in_code_block = false;
+                        //in_code_block = false;
                         // Remove everything up to and including the tag
                         tag_buffer.drain(..pos + 7);
+
+                        let _ = writer.flush().await;
+                        break;
                     } else {
                         // Send all but the tail (which might contain partial closing tag)
                         if tag_buffer.len() > MAX_TAG_LEN {
@@ -228,7 +242,7 @@ async fn generate(
     };
 
     // Must default to HTML because .com is technically an extension
-    let content_type = ContentType::from_extension(&extension).unwrap_or(ContentType::HTML);
+    let content_type = ContentType::from_extension(extension).unwrap_or(ContentType::HTML);
 
     Ok((content_type, stream))
 }
@@ -239,10 +253,15 @@ pub fn index() -> RawHtml<TextStream![String]> {
         yield r#"<!DOCTYPE html><html lang="en" class="dark"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><title>web2050</title><link rel="stylesheet" href="/style.css"></head><body class="bg-gray-950 text-gray-100 min-h-screen flex items-center justify-center px-4 py-8"><main class="w-full max-w-2xl"><header class="mb-8 text-center"><h1 class="text-4xl font-bold text-blue-500">web2050 Index</h1><p class="text-gray-400 mt-2"Append any url minus the protocol (https://) to the end of this url (e.hackclub.app) and watch an AI magically generate it in real time!></p><p class="text-gray-400 mt-2">Search the index of all available AI-generated pages.</p></header><section class="mb-6"><input type="text" id="search-input" placeholder="Search..." class="w-full p-3 rounded-lg border border-gray-700 bg-gray-800 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"/></section><ul id="index-list" class="space-y-2">"#.to_string();
 
         for entry in WalkDir::new("internet").into_iter().flatten().skip(1) {
-            if let Ok(path) = entry.path().strip_prefix("internet") {
-                let path = path.to_string_lossy();
-                yield format!(r#"<li class="index-item" data-path="{0}"><a href="/{0}" class="block p-3 rounded-md bg-gray-800 hover:bg-gray-700 text-blue-500 transition-colors">{0}</a></li>"#, path);
-            }
+            if entry.file_type.is_file() {
+                if let Ok(path) = entry.path().strip_prefix("internet") {
+                    let path = path.to_string_lossy();
+                    yield format!(
+                        r#"<li class="index-item" data-path="{0}"><a href="/{0}" class="block p-3 rounded-md bg-gray-800 hover:bg-gray-700 text-blue-500 transition-colors">{0}</a></li>"#,
+                        path
+                    );
+                }
+           }
         }
 
         yield r#"</ul></main><script>document.addEventListener("DOMContentLoaded",()=>{const e=document.getElementById("search-input"),t=document.querySelectorAll(".index-item");e.addEventListener("input",()=>{const n=e.value.toLowerCase();t.forEach(e=>{const t=e.getAttribute("data-path").toLowerCase();e.style.display=t.includes(n)?"":"none"})})})</script></body></html>"#.to_string();
