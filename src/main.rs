@@ -1,7 +1,6 @@
 #![deny(clippy::all)]
 
 use futures_util::TryStreamExt;
-use jwalk::WalkDir;
 use rocket::fs::FileServer;
 use rocket::http::{ContentType, Status};
 use rocket::response::content::RawHtml;
@@ -12,8 +11,11 @@ use rocket::tokio::sync::{Mutex, Notify, mpsc};
 use rocket::tokio::{fs, task};
 use rocket::{State, tokio};
 use std::collections::HashMap;
+use std::env::current_dir;
 use std::ffi::OsString;
+use std::io::BufRead;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 use tokio_util::io::StreamReader;
 
@@ -48,7 +50,7 @@ impl Drop for GenerationGuard {
     }
 }
 
-#[get("/<url..>", rank = 2)]
+#[get("/<url..>", rank = 4)]
 async fn generate(
     url: PathBuf,
     gen_map: &State<GenerationMap>,
@@ -191,16 +193,16 @@ async fn generate(
 
                 if !in_code_block {
                     // Look for opening tag
-                    // This minimizes buffer size and is not nessicary for function
-                    // setting in_code_block is nessicary
                     if let Some(pos) = tag_buffer.find("<code>") {
                         in_code_block = true;
                         // Remove everything up to and including the tag
                         tag_buffer.drain(..pos + 6);
                     } else {
-                        // Keep only the tail that might contain partial tag
+                        // Keep only the tail that might contain partial tag, respecting UTF-8 boundaries
                         if tag_buffer.len() > MAX_TAG_LEN {
-                            tag_buffer.drain(..tag_buffer.len() - MAX_TAG_LEN);
+                            let keep_from =
+                                find_utf8_boundary(&tag_buffer, tag_buffer.len() - MAX_TAG_LEN);
+                            tag_buffer.drain(..keep_from);
                         }
                     }
                 } else {
@@ -212,22 +214,21 @@ async fn generate(
                             let _ = writer.write_all(content.as_bytes()).await;
                             let _ = tx.send(content.to_string()).await;
                         }
-                        //in_code_block = false;
                         // Remove everything up to and including the tag
                         tag_buffer.drain(..pos + 7);
-
                         let _ = writer.flush().await;
                         break;
                     } else {
                         // Send all but the tail (which might contain partial closing tag)
                         if tag_buffer.len() > MAX_TAG_LEN {
-                            let send_len = tag_buffer.len() - MAX_TAG_LEN;
-
-                            let content = &tag_buffer[..send_len];
-                            let _ = writer.write_all(content.as_bytes()).await;
-                            let _ = tx.send(content.to_string()).await;
-
-                            tag_buffer.drain(..send_len);
+                            let send_len =
+                                find_utf8_boundary(&tag_buffer, tag_buffer.len() - MAX_TAG_LEN);
+                            if send_len > 0 {
+                                let content = &tag_buffer[..send_len];
+                                let _ = writer.write_all(content.as_bytes()).await;
+                                let _ = tx.send(content.to_string()).await;
+                                tag_buffer.drain(..send_len);
+                            }
                         }
                     }
                 }
@@ -247,25 +248,121 @@ async fn generate(
     Ok((content_type, stream))
 }
 
-#[get("/")]
-pub fn index() -> RawHtml<TextStream![String]> {
-    RawHtml(TextStream! {
-        yield r#"<!DOCTYPE html><html lang="en" class="dark"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><title>web2050</title><link rel="stylesheet" href="/style.css"></head><body class="bg-gray-950 text-gray-100 min-h-screen flex items-center justify-center px-4 py-8"><main class="w-full max-w-2xl"><header class="mb-8 text-center"><h1 class="text-4xl font-bold text-blue-500">web2050 Index</h1><p class="text-gray-400 mt-2"Append any url minus the protocol (https://) to the end of this url (e.hackclub.app) and watch an AI magically generate it in real time!></p><p class="text-gray-400 mt-2">Search the index of all available AI-generated pages.</p></header><section class="mb-6"><input type="text" id="search-input" placeholder="Search..." class="w-full p-3 rounded-lg border border-gray-700 bg-gray-800 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"/></section><ul id="index-list" class="space-y-2">"#.to_string();
+fn find_utf8_boundary(s: &str, mut pos: usize) -> usize {
+    // If pos is beyond string length, return string length
+    if pos >= s.len() {
+        return s.len();
+    }
 
-        for entry in WalkDir::new("internet").into_iter().flatten().skip(1) {
-            if entry.file_type.is_file() {
-                if let Ok(path) = entry.path().strip_prefix("internet") {
-                    let path = path.to_string_lossy();
+    // Walk backwards to find a valid UTF-8 character boundary
+    while pos > 0 && !s.is_char_boundary(pos) {
+        pos -= 1;
+    }
+    pos
+}
+
+#[get("/?<q>")]
+pub async fn index(q: Option<&str>) -> Result<RawHtml<TextStream![String]>, Status> {
+    let cwd = current_dir()
+        .map_err(|_| Status::InternalServerError)?
+        .join("internet");
+
+    let content_search = q.is_some();
+
+    let mut rg = Command::new("rg");
+
+    let mut rg = if let Some(term) = q.filter(|s| !s.is_empty()) {
+        rg.arg("-i").arg(term)
+    } else {
+        rg.arg("--files")
+    }
+    .arg("--no-ignore-vcs")
+    .arg("--sortr=created") // New at top
+    .current_dir(cwd)
+    .stdout(Stdio::piped())
+    .spawn()
+    .map_err(|_| Status::InternalServerError)?;
+
+    Ok(RawHtml(TextStream! {
+        // Head
+        yield r#"<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>web2050</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen flex items-center justify-center px-4 py-8">
+  <main class="w-full max-w-2xl">
+    <header class="mb-8 text-center">
+      <h1 class="text-4xl font-bold text-blue-500">web2050 Index</h1>
+      <p class="text-gray-400 mt-2">Append any URL minus the protocol (https://) to the end of this URL and watch AI generate it in real time.</p>
+      <p class="text-gray-400 mt-2">Search the index of all AI-generated pages sorted descending by creation.</p>
+    </header>
+    <section class="mb-6 w-full flex space-x-2">
+      <form method="get" class="flex w-full">
+        <input
+          type="text"
+          name="q"
+          id="search-input"
+          value=""
+          placeholder="Search by term or path..."
+          class="flex-1 p-3 rounded-l-lg border border-gray-700 bg-gray-800 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <button type="submit" class="p-3 bg-blue-500 rounded-r-lg text-white hover:bg-blue-600 focus:ring-2 focus:ring-blue-400">
+          Search by content
+        </button>
+      </form>
+    </section>
+    <ul id="index-list" class="space-y-2">"#.to_string();
+
+    if let Some(stdout) = rg.stdout.take() {
+        let reader = std::io::BufReader::new(stdout);
+
+        for line in reader.lines().map_while(Result::ok) {
+            if content_search {
+                if let Some((path, snippet)) = line.split_once(':') {
                     yield format!(
-                        r#"<li class="index-item" data-path="{0}"><a href="/{0}" class="block p-3 rounded-md bg-gray-800 hover:bg-gray-700 text-blue-500 transition-colors">{0}</a></li>"#,
-                        path
+                        r#"<li class="p-3 rounded-md bg-gray-800 hover:bg-gray-700 transition-colors" data-path="{0}">
+  <a href="/{0}" class="text-blue-500">{0}</a>
+  <pre class="whitespace-pre-wrap break-words text-gray-100 bg-gray-800 p-2 rounded-md mt-2"><code>{1}</code></pre>
+</li>"#,
+                        path,
+                        html_escape::encode_text(snippet)
                     );
                 }
-           }
+            } else {
+                yield format!(
+                    r#"<li class="p-3 rounded-md bg-gray-800 hover:bg-gray-700 transition-colors" data-path="{0}">
+  <a href="/{0}" class="text-blue-500">{0}</a>
+</li>"#,
+                    line
+                );
+            }
         }
+    }
 
-        yield r#"</ul></main><script>document.addEventListener("DOMContentLoaded",()=>{const e=document.getElementById("search-input"),t=document.querySelectorAll(".index-item");e.addEventListener("input",()=>{const n=e.value.toLowerCase();t.forEach(e=>{const t=e.getAttribute("data-path").toLowerCase();e.style.display=t.includes(n)?"":"none"})})})</script></body></html>"#.to_string();
-    })
+        // Footer and script
+        yield r##"</ul>
+  </main>
+  <script>
+    // Live filtering on input
+    document.addEventListener("DOMContentLoaded", () => {
+      const input = document.getElementById("search-input");
+      const items = document.querySelectorAll("#index-list .p-3");
+      input.addEventListener("input", () => {
+        const q = input.value.toLowerCase();
+        items.forEach(el => {
+          const path = el.getAttribute("data-path");
+          el.style.display = path && path.toLowerCase().includes(q) ? "block" : "none";
+        });
+      });
+    });
+  </script>
+</body>
+</html>"##.to_string();
+    }))
 }
 
 #[launch]
@@ -275,6 +372,6 @@ fn rocket() -> _ {
     rocket::build()
         .manage(gen_map)
         .attach(csp::CSPFairing)
-        .mount("/", FileServer::from("internet").rank(1))
         .mount("/", routes![index, generate])
+        .mount("/", FileServer::from("internet").rank(3))
 }

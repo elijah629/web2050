@@ -1,0 +1,5 @@
+# The search tool should not include these
+
+internet/tailwindcss.js
+internet/favicon.ico
+internet/style.css

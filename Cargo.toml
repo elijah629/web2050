@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 futures-util = "0.3.31"
+html-escape = "0.2.13"
 jwalk = "0.8.1"
 reqwest = { version = "0.12.22", default-features = false, features = [ "rustls-tls", "stream", "json" ] }
 rocket = "0.5.1"
