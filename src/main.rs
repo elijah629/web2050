@@ -1,32 +1,32 @@
 #![deny(clippy::all)]
-
+use async_stream::stream;
+use axum::body::Body;
+use axum::extract::{Query, State};
+use axum::handler::HandlerWithoutStateExt;
+use axum::http::{HeaderValue, Request, Response, StatusCode, Uri};
+use axum::middleware::Next;
+use axum::response::IntoResponse;
+use axum::routing::get;
+use axum::{Router, middleware};
 use futures_util::TryStreamExt;
-use rocket::fs::FileServer;
-use rocket::http::{ContentType, Status};
-use rocket::response::content::RawHtml;
-use rocket::response::stream::TextStream;
-use rocket::tokio::fs::File;
-use rocket::tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
-use rocket::tokio::sync::{Mutex, Notify, mpsc};
-use rocket::tokio::{fs, task};
-use rocket::{State, tokio};
+use mime_guess::Mime;
 use std::collections::HashMap;
 use std::env::current_dir;
 use std::ffi::OsString;
 use std::io::BufRead;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::str::FromStr;
 use std::sync::Arc;
+use tokio::fs::{self, File};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
+use tokio::sync::{Mutex, Notify, mpsc};
 use tokio_util::io::StreamReader;
+use tower_http::services::ServeDir;
 
 use crate::ai::AIResponse;
-
 mod ai;
 mod assets;
-mod csp;
-
-#[macro_use]
-extern crate rocket;
 
 type GenerationMap = Arc<Mutex<HashMap<OsString, Arc<Notify>>>>;
 
@@ -42,7 +42,7 @@ impl Drop for GenerationGuard {
         let map = self.map.clone();
         let notifier = self.notifier.clone();
 
-        task::spawn(async move {
+        tokio::task::spawn(async move {
             let mut guard = map.lock().await;
             guard.remove(&key);
             notifier.notify_waiters();
@@ -50,11 +50,12 @@ impl Drop for GenerationGuard {
     }
 }
 
-#[get("/<url..>", rank = 4)]
 async fn generate(
-    url: PathBuf,
-    gen_map: &State<GenerationMap>,
-) -> Result<(ContentType, TextStream![String]), Status> {
+    url: Uri,
+    State(gen_map): State<GenerationMap>,
+) -> Result<impl IntoResponse, StatusCode> {
+    use std::path::Path;
+
     // Generates the path
     //
     // For generation need to check the global mutex:
@@ -69,10 +70,14 @@ async fn generate(
     // request should HANG until index.html is done
     // REQ /google.com/assets/icon.svg - Hang like above, since this req is on the same common route, /
 
+    let url = url.path();
+    let url = url.strip_prefix('/').unwrap_or(url);
+    let url = PathBuf::from(url);
+
     let extension = url.extension().and_then(|x| x.to_str());
 
     if let Some("map") = extension {
-        return Err(Status::BadRequest);
+        return Err(StatusCode::BAD_REQUEST);
     }
 
     let (url, extension) = match (url.components().count(), extension) {
@@ -81,7 +86,7 @@ async fn generate(
     };
 
     if url.as_os_str().len() > 64 {
-        return Err(Status::UriTooLong);
+        return Err(StatusCode::URI_TOO_LONG);
     }
 
     let key = url
@@ -121,7 +126,7 @@ async fn generate(
     // Create all the folders
     fs::create_dir_all(&parent_fs_path).await.map_err(|e| {
         eprintln!("{e}");
-        Status::InternalServerError
+        StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
     // Fetch all assets relating to the domain. We should wait, but it is unlikely that a request
@@ -133,12 +138,12 @@ async fn generate(
         .await
         .map_err(|e| {
             eprintln!("{e}");
-            Status::InternalServerError
+            StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
     let resp = ai::stream_page_ndjson(&url, assets).await.map_err(|e| {
         eprintln!("{e}");
-        Status::InternalServerError
+        StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
     let stream = resp.bytes_stream();
@@ -150,7 +155,7 @@ async fn generate(
     // done.
     let guard = GenerationGuard {
         key: key.clone(),
-        map: gen_map.inner().clone(),
+        map: gen_map.clone(),
         notifier: notifier.clone(),
     };
 
@@ -158,7 +163,7 @@ async fn generate(
         .await
         .map_err(|e| {
             eprintln!("{e}");
-            Status::InternalServerError
+            StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
     let (tx, mut rx) = mpsc::channel::<String>(32);
@@ -236,16 +241,20 @@ async fn generate(
         }
     });
 
-    let stream = TextStream! {
+    let stream = stream! {
         while let Some(delta) = rx.recv().await {
-            yield delta;
+            yield Ok::<String, std::convert::Infallible>(delta);
         }
     };
 
     // Must default to HTML because .com is technically an extension
-    let content_type = ContentType::from_extension(extension).unwrap_or(ContentType::HTML);
+    let mime_type = mime_guess::from_ext(extension).first_or(Mime::from_str("text/html").unwrap());
+    //.unwrap_or(ContentType::HTML);
 
-    Ok((content_type, stream))
+    Ok(Response::builder()
+        .header("Content-Type", mime_type.as_ref())
+        .body(Body::from_stream(stream))
+        .unwrap())
 }
 
 fn find_utf8_boundary(s: &str, mut pos: usize) -> usize {
@@ -261,17 +270,17 @@ fn find_utf8_boundary(s: &str, mut pos: usize) -> usize {
     pos
 }
 
-#[get("/?<q>")]
-pub async fn index(q: Option<&str>) -> Result<RawHtml<TextStream![String]>, Status> {
+async fn index(Query(params): Query<HashMap<String, String>>) -> Result<Body, StatusCode> {
     let cwd = current_dir()
-        .map_err(|_| Status::InternalServerError)?
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .join("internet");
 
-    let content_search = q.is_some();
+    let q = params.get("q");
+    let content = q.is_some();
 
     let mut rg = Command::new("rg");
 
-    let mut rg = if let Some(term) = q.filter(|s| !s.is_empty()) {
+    let mut rg = if let Some(term) = q {
         rg.arg("-i").arg(term)
     } else {
         rg.arg("--files")
@@ -281,11 +290,11 @@ pub async fn index(q: Option<&str>) -> Result<RawHtml<TextStream![String]>, Stat
     .current_dir(cwd)
     .stdout(Stdio::piped())
     .spawn()
-    .map_err(|_| Status::InternalServerError)?;
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(RawHtml(TextStream! {
+    let stream = stream! {
         // Head
-        yield r#"<!DOCTYPE html>
+        yield Ok::<_, std::convert::Infallible>(r#"<!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
   <meta charset="UTF-8"/>
@@ -315,36 +324,36 @@ pub async fn index(q: Option<&str>) -> Result<RawHtml<TextStream![String]>, Stat
         </button>
       </form>
     </section>
-    <ul id="index-list" class="space-y-2">"#.to_string();
+    <ul id="index-list" class="space-y-2">"#.to_string());
 
     if let Some(stdout) = rg.stdout.take() {
         let reader = std::io::BufReader::new(stdout);
 
         for line in reader.lines().map_while(Result::ok) {
-            if content_search {
+            if content {
                 if let Some((path, snippet)) = line.split_once(':') {
-                    yield format!(
+                    yield Ok(format!(
                         r#"<li class="p-3 rounded-md bg-gray-800 hover:bg-gray-700 transition-colors" data-path="{0}">
   <a href="/{0}" class="text-blue-500">{0}</a>
   <pre class="whitespace-pre-wrap break-words text-gray-100 bg-gray-800 p-2 rounded-md mt-2"><code>{1}</code></pre>
 </li>"#,
                         path,
                         html_escape::encode_text(snippet)
-                    );
+                    ));
                 }
             } else {
-                yield format!(
+                yield Ok(format!(
                     r#"<li class="p-3 rounded-md bg-gray-800 hover:bg-gray-700 transition-colors" data-path="{0}">
   <a href="/{0}" class="text-blue-500">{0}</a>
 </li>"#,
                     line
-                );
+                ));
             }
         }
     }
 
         // Footer and script
-        yield r##"</ul>
+        yield Ok(r##"</ul>
   </main>
   <script>
     // Live filtering on input
@@ -361,17 +370,49 @@ pub async fn index(q: Option<&str>) -> Result<RawHtml<TextStream![String]>, Stat
     });
   </script>
 </body>
-</html>"##.to_string();
-    }))
+</html>"##.to_string());
+    };
+
+    Ok(Body::from_stream(stream))
 }
 
-#[launch]
-fn rocket() -> _ {
+async fn csp(req: Request<Body>, next: Next) -> Response<Body> {
+    let mut response = next.run(req).await;
+
+    let csp = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src *; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none';";
+    response.headers_mut().insert(
+        "Content-Security-Policy",
+        HeaderValue::from_str(csp).unwrap(),
+    );
+
+    response
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    use dotenvy::EnvLoader;
+
+    let env = EnvLoader::new().load()?;
     let gen_map: GenerationMap = Arc::new(Mutex::new(HashMap::new()));
 
-    rocket::build()
-        .manage(gen_map)
-        .attach(csp::CSPFairing)
-        .mount("/", routes![index, generate])
-        .mount("/", FileServer::from("internet").rank(3))
+    let service = get(generate).with_state(gen_map).into_service();
+
+    let app = Router::new()
+        .route("/", get(index))
+        .fallback_service(ServeDir::new("internet").fallback(service))
+        .layer(middleware::from_fn(csp));
+
+    let listener = tokio::net::TcpListener::bind(env.var("HOST")?)
+        .await
+        .unwrap();
+
+    axum::serve(listener, app).await.unwrap();
+
+    Ok(())
+
+    /*rocket::build()
+    .manage(gen_map)
+    .attach(csp::CSPFairing)
+    .mount("/", routes![index, generate])
+    .mount("/", FileServer::from("internet").rank(3))*/
 }

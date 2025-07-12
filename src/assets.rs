@@ -1,6 +1,7 @@
 use futures_util::future::try_join_all;
 use jwalk::WalkDir;
-use rocket::tokio::{fs, io};
+use tokio::{fs, io};
+
 use std::{
     fmt,
     path::{Path, PathBuf},
