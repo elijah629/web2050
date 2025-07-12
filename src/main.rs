@@ -85,7 +85,7 @@ async fn generate(
         (_, Some(ext)) => (url.clone(), ext),
     };
 
-    if url.as_os_str().len() > 64 {
+    if url.as_os_str().len() > 72 {
         return Err(StatusCode::URI_TOO_LONG);
     }
 

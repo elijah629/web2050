@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 async-stream = "0.3.6"
-axum = "0.8.4"
+axum = { version = "0.8.4", default-features = false, features = ["http2", "matched-path", "original-uri", "tokio", "query", "http1"] }
 futures-core = "0.3.31"
 futures-util = "0.3.31"
 html-escape = "0.2.13"
