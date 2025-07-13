@@ -1314,7 +1314,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "web2050"
+name = "wifi"
 version = "0.2.1"
 dependencies = [
  "async-stream",
