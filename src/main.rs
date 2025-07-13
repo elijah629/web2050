@@ -275,12 +275,12 @@ async fn index(Query(params): Query<HashMap<String, String>>) -> Result<Body, St
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .join("internet");
 
-    let q = params.get("q");
-    let content = q.is_some();
+    let query = params.get("q");
+    let content = query.is_some();
 
     let mut rg = Command::new("rg");
 
-    let mut rg = if let Some(term) = q {
+    let mut rg = if let Some(term) = query {
         rg.arg("-i").arg(term)
     } else {
         rg.arg("--files")
@@ -307,7 +307,7 @@ async fn index(Query(params): Query<HashMap<String, String>>) -> Result<Body, St
     <header class="mb-8 text-center">
       <h1 class="text-4xl font-bold text-blue-500">web2050 Index</h1>
       <p class="text-gray-400 mt-2">Append any URL minus the protocol (https://) to the end of this URL and watch AI generate it in real time.</p>
-      <p class="text-gray-400 mt-2">Search the index of all AI-generated pages sorted descending by creation.</p>
+      <p class="text-gray-400 mt-2">Search the index of all AI-generated pages sorted descending by creation. <span id="counter">0</span> pages have been generated so far.</p>
     </header>
     <section class="mb-6 w-full flex space-x-2">
       <form method="get" class="flex w-full">
@@ -324,7 +324,28 @@ async fn index(Query(params): Query<HashMap<String, String>>) -> Result<Body, St
         </button>
       </form>
     </section>
-    <ul id="index-list" class="space-y-2">"#.to_string());
+    <ul id="list" class="space-y-2">"#.to_string());
+
+    yield Ok(r#"<script>
+  const ul = document.getElementById("list");
+  const counter = document.getElementById("counter");
+
+  // counter.textContent = ul.querySelectorAll("li").length;
+
+  const observer = new MutationObserver((mutationsList) => {
+    let newItems = 0;
+    for (const mutation of mutationsList) {
+      if (mutation.type === 'childList') {
+        newItems += mutation.addedNodes.length;
+      }
+    }
+    if (newItems > 0) {
+      counter.textContent = ul.querySelectorAll("li").length;
+    }
+  });
+
+  observer.observe(ul, { childList: true });
+</script>"#.to_string());
 
     if let Some(stdout) = rg.stdout.take() {
         let reader = std::io::BufReader::new(stdout);
@@ -359,7 +380,7 @@ async fn index(Query(params): Query<HashMap<String, String>>) -> Result<Body, St
     // Live filtering on input
     document.addEventListener("DOMContentLoaded", () => {
       const input = document.getElementById("search-input");
-      const items = document.querySelectorAll("#index-list .p-3");
+      const items = document.querySelectorAll("li");
       input.addEventListener("input", () => {
         const q = input.value.toLowerCase();
         items.forEach(el => {

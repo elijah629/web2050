@@ -140,6 +140,8 @@ DO NOT USE HTML ESCAPE SEQUENCES WHEN OUTPUTTING FILES
 
 Moby is now being connected to a client."#;
 
+const COMPLETIONS: &str = "https://ai.hackclub.com/chat/completions";
+
 // Response
 #[derive(Debug, Deserialize)]
 pub struct AIResponse {
@@ -220,7 +222,7 @@ pub async fn stream_page_ndjson(path: impl AsRef<Path>, assets: AssetList) -> Re
     let client = Client::new();
 
     let resp: AIResponse = client
-        .post("https://ai.hackclub.com/chat/completions")
+        .post(COMPLETIONS)
         .header(ACCEPT, "application/json")
         .header(CONTENT_TYPE, "application/json")
         .json(&RequestPayload {
@@ -268,7 +270,7 @@ pub async fn stream_page_ndjson(path: impl AsRef<Path>, assets: AssetList) -> Re
     ];
 
     let resp = client
-        .post("https://ai.hackclub.com/chat/completions")
+        .post(COMPLETIONS)
         .header(ACCEPT, "application/x-ndjson")
         .header(CONTENT_TYPE, "application/json")
         .json(&RequestPayload {
