@@ -1,4 +1,5 @@
 #![deny(clippy::all)]
+
 use async_stream::stream;
 use axum::body::Body;
 use axum::extract::{Query, State};
@@ -95,24 +96,22 @@ async fn generate(
         .as_os_str()
         .to_os_string();
 
-    let (we_are_the_inserter, notifier) = {
+    let (we_are_not_the_inserter, notifier) = {
         let mut map = gen_map.lock().await;
 
         match map.get(&key) {
-            Some(existing_notifier) => (false, existing_notifier.clone()),
+            Some(existing_notifier) => (true, existing_notifier.clone()),
             None => {
                 let new_notifier = Arc::new(Notify::new());
                 map.insert(key.clone(), new_notifier.clone());
-                (true, new_notifier)
+                (false, new_notifier)
             }
         }
     };
 
-    if !we_are_the_inserter {
+    if we_are_not_the_inserter {
         notifier.notified().await;
     }
-
-    println!("GEN {url:?}");
 
     // Regardless of whether the current folder was being generated on, we must still generate
     // this one.
@@ -249,7 +248,6 @@ async fn generate(
 
     // Must default to HTML because .com is technically an extension
     let mime_type = mime_guess::from_ext(extension).first_or(Mime::from_str("text/html").unwrap());
-    //.unwrap_or(ContentType::HTML);
 
     Ok(Response::builder()
         .header("Content-Type", mime_type.as_ref())
@@ -315,7 +313,6 @@ async fn index(Query(params): Query<HashMap<String, String>>) -> Result<Body, St
           type="text"
           name="q"
           id="search-input"
-          value=""
           placeholder="Search by term or path..."
           class="flex-1 p-3 rounded-l-lg border border-gray-700 bg-gray-800 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
@@ -345,7 +342,35 @@ async fn index(Query(params): Query<HashMap<String, String>>) -> Result<Body, St
   });
 
   observer.observe(ul, { childList: true });
+
+    document.addEventListener("DOMContentLoaded", () => {
+      const input = document.getElementById("search-input");
+      const items = document.querySelectorAll("li");
+      input.addEventListener("input", () => {
+        const q = input.value.toLowerCase();
+        items.forEach(el => {
+          const path = el.children[0].href.slice(1);
+          if (path && path.toLowerCase().includes(q)) {
+            el.removeAttribute("style");
+          } else {
+            el.style.display = "none";
+          }
+        });
+      });
+    });
 </script>"#.to_string());
+
+    if content {
+        yield Ok(r#"<style>pre {
+margin-top: calc(var(--spacing) * 2);
+border-radius: var(--radius-md);
+background-color: var(--color-gray-800);
+padding: calc(var(--spacing) * 2);
+overflow-wrap: break-word;
+white-space: pre-wrap;
+color: var(--color-gray-100);
+}</style>"#.to_string());
+    }
 
     if let Some(stdout) = rg.stdout.take() {
         let reader = std::io::BufReader::new(stdout);
@@ -354,44 +379,20 @@ async fn index(Query(params): Query<HashMap<String, String>>) -> Result<Body, St
             if content {
                 if let Some((path, snippet)) = line.split_once(':') {
                     yield Ok(format!(
-                        r#"<li class="p-3 rounded-md bg-gray-800 hover:bg-gray-700 transition-colors" data-path="{0}">
-  <a href="/{0}" class="text-blue-500">{0}</a>
-  <pre class="whitespace-pre-wrap break-words text-gray-100 bg-gray-800 p-2 rounded-md mt-2"><code>{1}</code></pre>
-</li>"#,
-                        path,
+                        r#"<li><a href="/{path}">{path}</a><pre><code>{0}</code></pre></li>"#,
                         html_escape::encode_text(snippet)
                     ));
                 }
             } else {
                 yield Ok(format!(
-                    r#"<li class="p-3 rounded-md bg-gray-800 hover:bg-gray-700 transition-colors" data-path="{0}">
-  <a href="/{0}" class="text-blue-500">{0}</a>
-</li>"#,
-                    line
+                    r#"<li><a href="/{line}">{line}</a></li>"#
                 ));
             }
         }
     }
 
         // Footer and script
-        yield Ok(r##"</ul>
-  </main>
-  <script>
-    // Live filtering on input
-    document.addEventListener("DOMContentLoaded", () => {
-      const input = document.getElementById("search-input");
-      const items = document.querySelectorAll("li");
-      input.addEventListener("input", () => {
-        const q = input.value.toLowerCase();
-        items.forEach(el => {
-          const path = el.getAttribute("data-path");
-          el.style.display = path && path.toLowerCase().includes(q) ? "block" : "none";
-        });
-      });
-    });
-  </script>
-</body>
-</html>"##.to_string());
+        yield Ok(r"</ul></main></body></html>".to_string());
     };
 
     Ok(Body::from_stream(stream))
@@ -430,10 +431,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     axum::serve(listener, app).await.unwrap();
 
     Ok(())
-
-    /*rocket::build()
-    .manage(gen_map)
-    .attach(csp::CSPFairing)
-    .mount("/", routes![index, generate])
-    .mount("/", FileServer::from("internet").rank(3))*/
 }

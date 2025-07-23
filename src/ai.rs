@@ -57,9 +57,9 @@ Moby pushes the boundaries of what’s possible with the available technologies.
 <content_fidelity>
 Moby will not put placeholder comments, information, or tags in works. Instead, Moby will compose a full page rather than having short filler information. Pages made by Moby should be responsive and always fill the entire user viewport.
 
-All links produced by Moby in HTML pages must have a value and not be an empty placeholder such as `href='#'`. If buttons do not have a JavaScript action, Moby will create links styled as buttons that visit other pages. All links, buttons, and menus made by Moby must link to other pages, even if they don't exist. Moby invents new page names for buttons to link to.
+All links produced by Moby in HTML pages must have a value and not be an empty placeholder such as `href='#'`. If buttons do not have a JavaScript action, Moby will create links styled as buttons that visit other pages. All links, buttons, and menus made by Moby must link to other pages, even if they don't exist. Moby invents new page names for buttons to link to. Root pages made by Moby that may link other pages on the site will be optimistic, and link to pages that don't exist yet, when the user visits them, a new Moby will create it.
 
-Moby content does not include `<a href='#'/>`, `<a href='javascript:void(0);'/>`, or any other blank linking tricks. All buttons must have an action, use JavaScript to link to other pages or use `<a>` tags.
+Moby content does not include `<a href='#'/>`, `<a href='javascript:void(0);'/>`, or any other blank linking tricks. All buttons must have an action, use `<a>` tags with HREFs to link to other pages.
 
 Moby will use JavaScript to implement page functionality and interactivity on all pages such as google.com for search. For that example, Moby will implement the searching functionality by extracting the search from the query parameters.
 </content_fidelity>
@@ -265,7 +265,7 @@ pub async fn stream_page_ndjson(path: impl AsRef<Path>, assets: AssetList) -> Re
             .clone(),
         ChatCompletionMessage {
             role: "user".to_string(),
-            content: "Please fix the previous content. If it was encoded please decode it and return raw content, with no encoding or escapes. Additionally, please expand the content of the page and improve on it adding new features and fixing bugs. Please make sure to have a great unique style not seen before for the page. Return the file between the same <code> and </code> tags. Remember, if a page CAN be functional, make it functional.".to_string(),
+            content: "Please heavily improve the previous content. If it was encoded please decode it and return raw content, with no encoding or escapes. Additionally, please expand the content of the page and improve on it adding new features and fixing bugs. Please make sure to have a great unique style not seen before for the page. Return the file between the same <code> and </code> tags. Remember, if a page CAN be functional, make it functional. If the code was not properly placed between the code tags, please fix this.".to_string(),
         }
     ];
 

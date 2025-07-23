@@ -46,7 +46,7 @@ impl fmt::Display for Asset {
 impl fmt::Display for AssetList {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for asset in &self.0 {
-            writeln!(f, "{}\n", asset)?;
+            writeln!(f, "{asset}\n")?;
         }
         Ok(())
     }
