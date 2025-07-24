@@ -169,7 +169,7 @@ pub struct Choice {
 #[derive(Debug, Deserialize)]
 pub struct Delta {
     pub content: Option<String>,
-    //pub role: Option<String>,
+    pub role: Option<String>,
 }
 /*
 #[derive(Debug, Deserialize)]

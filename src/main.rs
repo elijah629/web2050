@@ -184,10 +184,13 @@ async fn generate(
                     let _ = writer.flush().await;
                     break;
                 }
-                let delta = choice
-                    .delta
-                    .as_ref()
-                    .expect("delta since streaming")
+                let delta = choice.delta.as_ref().expect("delta since streaming");
+
+                if delta.content.is_none() && delta.role.is_some() {
+                    continue;
+                }
+
+                let delta = delta
                     .content
                     .as_ref()
                     .expect("no delta but response has not finished streaming");
