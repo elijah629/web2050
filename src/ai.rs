@@ -210,8 +210,6 @@ pub struct RequestPayload {
     stream: bool,
 }
 
-// TODO: Implement a 2-shot method, where the page is generated then the model is asked to refine
-// it.
 pub async fn stream_page_ndjson(path: impl AsRef<Path>, assets: AssetList) -> Result<Response> {
     let date = OffsetDateTime::now_utc()
         .format(
@@ -221,9 +219,9 @@ pub async fn stream_page_ndjson(path: impl AsRef<Path>, assets: AssetList) -> Re
 
     let client = Client::new();
 
-    let resp: AIResponse = client
+    let resp = client
         .post(COMPLETIONS)
-        .header(ACCEPT, "application/json")
+        .header(ACCEPT, "application/x-ndjson")
         .header(CONTENT_TYPE, "application/json")
         .json(&RequestPayload {
             messages: vec![
@@ -239,42 +237,6 @@ pub async fn stream_page_ndjson(path: impl AsRef<Path>, assets: AssetList) -> Re
                     ),
                 },
             ],
-            stream: false,
-        })
-        .send()
-        .await?
-        .json()
-        .await?;
-
-    let messages = vec![
-        ChatCompletionMessage {
-            role: "system".into(),
-            content: SYSTEM.replace("{{date}}", &date),
-        },
-        ChatCompletionMessage {
-            role: "user".into(),
-            content: format!(
-                "URL to create: {}\nAsset files in the same domain:\n{assets}",
-                path.as_ref().to_string_lossy()
-            ),
-        },
-        resp.choices[0]
-            .message
-            .as_ref()
-            .expect("message in a non-streaming response")
-            .clone(),
-        ChatCompletionMessage {
-            role: "user".to_string(),
-            content: "Please heavily improve the previous content. If it was encoded please decode it and return raw content, with no encoding or escapes. Additionally, please expand the content of the page and improve on it adding new features and fixing bugs. Please make sure to have a great unique style not seen before for the page. Return the file between the same <code> and </code> tags. Remember, if a page CAN be functional, make it functional. If the code was not properly placed between the code tags, please fix this.".to_string(),
-        }
-    ];
-
-    let resp = client
-        .post(COMPLETIONS)
-        .header(ACCEPT, "application/x-ndjson")
-        .header(CONTENT_TYPE, "application/json")
-        .json(&RequestPayload {
-            messages,
             stream: true,
         })
         .send()
