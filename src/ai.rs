@@ -9,7 +9,7 @@ use time::{OffsetDateTime, format_description};
 use crate::assets::AssetList;
 
 // Input  -> blog/my_political_compass_test_results.html
-// Output <- The file content wrapped in <code> </code>
+// Output <- The file content wrapped in <_out> </_out>
 
 // The content denial list below is adapted from the Nest code of conduct. Some items have been
 // omitted to allow the AI to clone existng websites and removes things referencing minecraft
@@ -22,10 +22,10 @@ The current date is {{date}}.
 
 Moby generates exactly one human-readable file's content for a given domain+path URL (e.g., `google.com/index.html`, `slack.com/logo.svg`). Moby will also use the additional context data from other files that already exist in the given domain to further build on the existing experience.
 
-Moby only accepts recognized readable extensions for human-readable formats in the URLs. If it receives anything besides a human-readable extension or format, Moby returns exactly: <code>CONTENT_REJECTED</code>
+Moby only accepts recognized readable extensions for human-readable formats in the URLs. If it receives anything besides a human-readable extension or format, Moby returns exactly: <_out>CONTENT_REJECTED</_out>
 
 <output_format>
-Moby may include reasoning before the output, however the file Moby produces is always wrapped in `<code>` tags containing only the raw contents of the file, not encoded in any way. Moby does not include anything after the `<code>` tags, meaning Moby will terminate its response after creating the required tags.
+Moby may include reasoning before the output, however the file Moby produces is always wrapped in `<_out>` tags containing only the raw contents of the file, not encoded in any way. Moby does not include anything after the `<_out>` tags, meaning Moby will terminate its response after creating the required tags.
 
 Moby produces all content raw, Moby does not encode XML, HTML, or SVG.
 </output_format>
@@ -52,20 +52,17 @@ Moby defaults to contemporary design trends and modern aesthetic choices unless 
 Moby pushes the boundaries of what’s possible with the available technologies. Use advanced Tailwind CSS features, complex animations, and creative JavaScript interactions. The goal is to create experiences that feel premium and cutting-edge.
 - Ensure accessibility with proper contrast and semantic markup
 - Create functional, working demonstrations rather than placeholders
+- Pages made by Moby should be responsive and always fill the entire user viewport.
 </design_choices>
 
 <content_fidelity>
-Moby will not put placeholder comments, information, or tags in works. Instead, Moby will compose a full page rather than having short filler information. Pages made by Moby should be responsive and always fill the entire user viewport.
-
-All links produced by Moby in HTML pages must have a value and not be an empty placeholder such as `href='#'`. If buttons do not have a JavaScript action, Moby will create links styled as buttons that visit other pages. All links, buttons, and menus made by Moby must link to other pages, even if they don't exist. Moby invents new page names for buttons to link to. Root pages made by Moby that may link other pages on the site will be optimistic, and link to pages that don't exist yet, when the user visits them, a new Moby will create it.
-
-Moby content does not include `<a href='#'/>`, `<a href='javascript:void(0);'/>`, or any other blank linking tricks. All buttons must have an action, use `<a>` tags with HREFs to link to other pages.
+Moby will not put placeholder comments, information, or tags in works. Instead, Moby will compose a full page rather than having any filler information.
 
 Moby will use JavaScript to implement page functionality and interactivity on all pages such as google.com for search. For that example, Moby will implement the searching functionality by extracting the search from the query parameters.
 </content_fidelity>
 
 <prohibited_content>
-Moby takes ethics and safety first, Moby checks over the following before producing any content. If these rules are broken, Moby returns exactly: <code>CONTENT_REJECTED</code>
+Moby takes ethics and safety first, Moby checks over the following before producing any content. If these rules are broken, Moby returns exactly: <_out>CONTENT_REJECTED</_out>
 
 - Any form of malware (which includes, without limitation, malicious code or software that may affect the operation of the Internet);
 - Any form of botnets, spam, or phishing;
@@ -85,7 +82,7 @@ Moby takes ethics and safety first, Moby checks over the following before produc
 
 <example for="/wasm.org/index.html">
 
-<code>
+<_out>
   <!DOCTYPE html>
   <html lang="en">
     <head>
@@ -131,12 +128,9 @@ Moby takes ethics and safety first, Moby checks over the following before produc
       </footer>
     </body>
   </html>
-</code>
+</_out>
 
 </example>
-
-!CRITICAL OUTPUT WARNING!
-DO NOT USE HTML ESCAPE SEQUENCES WHEN OUTPUTTING FILES
 
 Moby is now being connected to a client."#;
 
@@ -159,9 +153,8 @@ pub struct AIResponse {
 #[derive(Debug, Deserialize)]
 pub struct Choice {
     pub delta: Option<Delta>,
-    #[serde(rename = "finish_reason")]
-    pub finish_reason: Option<String>,
-    pub message: Option<ChatCompletionMessage>,
+    // pub finish_reason: Option<String>,
+    // pub message: Option<ChatCompletionMessage>,
     //pub index: u32,
     //pub logprobs: Option<serde_json::Value>,
 }
@@ -169,7 +162,7 @@ pub struct Choice {
 #[derive(Debug, Deserialize)]
 pub struct Delta {
     pub content: Option<String>,
-    pub role: Option<String>,
+    // pub role: Option<String>,
 }
 /*
 #[derive(Debug, Deserialize)]
@@ -197,7 +190,7 @@ pub struct Usage {
 }*/
 
 // Request
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Debug, Clone)]
 pub struct ChatCompletionMessage {
     role: String,
     content: String,
@@ -217,28 +210,30 @@ pub async fn stream_page_ndjson(path: impl AsRef<Path>, assets: AssetList) -> Re
         )
         .expect("today is a day");
 
+    let request = &RequestPayload {
+        messages: vec![
+            ChatCompletionMessage {
+                role: "system".into(),
+                content: SYSTEM.replace("{{date}}", &date),
+            },
+            ChatCompletionMessage {
+                role: "user".into(),
+                content: format!(
+                    "URL to create: {}\nAsset files in the same domain:\n{assets}",
+                    path.as_ref().to_string_lossy()
+                ),
+            },
+        ],
+        stream: true,
+    };
+
     let client = Client::new();
 
     let resp = client
         .post(COMPLETIONS)
         .header(ACCEPT, "application/x-ndjson")
         .header(CONTENT_TYPE, "application/json")
-        .json(&RequestPayload {
-            messages: vec![
-                ChatCompletionMessage {
-                    role: "system".into(),
-                    content: SYSTEM.replace("{{date}}", &date),
-                },
-                ChatCompletionMessage {
-                    role: "user".into(),
-                    content: format!(
-                        "URL to create: {}\nAsset files in the same domain:\n{assets}",
-                        path.as_ref().to_string_lossy()
-                    ),
-                },
-            ],
-            stream: true,
-        })
+        .json(&request)
         .send()
         .await?;
 

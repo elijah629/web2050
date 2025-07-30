@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 async-stream = "0.3.6"
 
-futures-core = "0.3.31"
 futures-util = "0.3.31"
 
 html-escape = "0.2.13"
@@ -16,11 +15,12 @@ serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 
 time = { version = "0.3.41", features = ["formatting"] }
-tokio = { version = "1.46.1", features = ["full"] }
 
 dotenvy = { git = "https://github.com/allan2/dotenvy", branch = "main", version = "0.15.7" }
 
 tower-http = { version = "0.6.6", features = ["fs"] }
+
+tokio = { version = "1.46.1", features = ["full"] }
 tokio-util = "0.7.15"
 
 mime_guess = { version = "2.0.5", default-features = false }
@@ -29,7 +29,7 @@ reqwest = { version = "0.12.22", default-features = false, features = [ "rustls-
 axum = { version = "0.8.4", default-features = false, features = ["http2", "matched-path", "original-uri", "tokio", "query", "http1"] }
 
 [profile.release]
-# lto = true
+lto = true
 opt-level = 3
-# codegen-units = 1
-# strip = true
+codegen-units = 1
+strip = true

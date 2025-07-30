@@ -911,7 +911,7 @@ dependencies = [
  "once_cell",
  "socket2 0.5.10",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1646,7 +1646,6 @@ dependencies = [
  "async-stream",
  "axum",
  "dotenvy",
- "futures-core",
  "futures-util",
  "html-escape",
  "jwalk",

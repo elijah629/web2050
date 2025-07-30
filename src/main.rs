@@ -9,8 +9,10 @@ use axum::middleware::Next;
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Router, middleware};
+
 use futures_util::TryStreamExt;
 use mime_guess::Mime;
+
 use std::collections::HashMap;
 use std::env::current_dir;
 use std::ffi::OsString;
@@ -19,37 +21,23 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::str::FromStr;
 use std::sync::Arc;
+
 use tokio::fs::{self, File};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::sync::{Mutex, Notify, mpsc};
+
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufWriter};
 use tokio_util::io::StreamReader;
+
 use tower_http::services::ServeDir;
 
 use crate::ai::AIResponse;
+use crate::streaming_parser::StreamingParser;
 mod ai;
 mod assets;
 
+mod streaming_parser;
+
 type GenerationMap = Arc<Mutex<HashMap<OsString, Arc<Notify>>>>;
-
-struct GenerationGuard {
-    key: OsString,
-    map: Arc<Mutex<HashMap<OsString, Arc<Notify>>>>,
-    notifier: Arc<Notify>,
-}
-
-impl Drop for GenerationGuard {
-    fn drop(&mut self) {
-        let key = self.key.clone();
-        let map = self.map.clone();
-        let notifier = self.notifier.clone();
-
-        tokio::task::spawn(async move {
-            let mut guard = map.lock().await;
-            guard.remove(&key);
-            notifier.notify_waiters();
-        });
-    }
-}
 
 async fn generate(
     url: Uri,
@@ -91,9 +79,9 @@ async fn generate(
     }
 
     let key = url
-        .parent()
+        .iter()
+        .next()
         .expect("cannot reach generator with no parent")
-        .as_os_str()
         .to_os_string();
 
     let (we_are_not_the_inserter, notifier) = {
@@ -117,7 +105,7 @@ async fn generate(
     // this one.
 
     let fs_path = Path::new("internet").join(&url);
-    let fs_domain = Path::new("internet").join(url.iter().next().expect("URL must have a domain"));
+    let fs_domain = Path::new("internet").join(&key);
     let parent_fs_path = fs_path
         .parent()
         .expect("cannot reach generator with empty path");
@@ -140,23 +128,12 @@ async fn generate(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    let resp = ai::stream_page_ndjson(&url, assets).await.map_err(|e| {
+    let stream = ai::stream_page_ndjson(&url, assets).await.map_err(|e| {
         eprintln!("{e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let stream = resp.bytes_stream();
-    let stream_reader = StreamReader::new(stream.map_err(std::io::Error::other));
-
-    let mut lines = BufReader::new(stream_reader).lines();
-
-    // RAII guard that, on drop, removes the key from the map and notifies that the req is
-    // done.
-    let guard = GenerationGuard {
-        key: key.clone(),
-        map: gen_map.clone(),
-        notifier: notifier.clone(),
-    };
+    let mut lines = StreamReader::new(stream.bytes_stream().map_err(std::io::Error::other)).lines();
 
     let file = File::create(Path::new("internet").join(url))
         .await
@@ -170,77 +147,30 @@ async fn generate(
     tokio::spawn(async move {
         let mut writer = BufWriter::new(file);
 
-        let _guard = guard; // Pull the guard into this scope, when the stream ends, the guard gets
-        // dropped;
+        let mut parser = StreamingParser::new();
 
-        let mut in_code_block = false;
-        let mut tag_buffer = String::new();
-        const MAX_TAG_LEN: usize = 7; // Length of "</code>"
+        while let Ok(Some(line)) = lines.next_line().await {
+            if let Ok(json) = serde_json::from_str::<AIResponse>(&line) {
+                if let Some(choice) = json.choices.first() {
+                    if let Some(delta) = choice.delta.as_ref() {
+                        if let Some(chunk) = &delta.content {
+                            println!("{chunk}");
+                            let chunk = parser.feed(chunk);
+                            println!("{chunk}");
 
-        while let Ok(Some(item)) = lines.next_line().await {
-            if let Ok(json) = serde_json::from_str::<AIResponse>(&item) {
-                let choice = &json.choices[0];
-                if choice.finish_reason.is_some() {
-                    let _ = writer.flush().await;
-                    break;
-                }
-                let delta = choice.delta.as_ref().expect("delta since streaming");
-
-                if delta.content.is_none() && delta.role.is_some() {
-                    continue;
-                }
-
-                let delta = delta
-                    .content
-                    .as_ref()
-                    .expect("no delta but response has not finished streaming");
-
-                // Combine previous buffer with new delta
-                tag_buffer.push_str(delta);
-
-                if !in_code_block {
-                    // Look for opening tag
-                    if let Some(pos) = tag_buffer.find("<code>") {
-                        in_code_block = true;
-                        // Remove everything up to and including the tag
-                        tag_buffer.drain(..pos + 6);
-                    } else {
-                        // Keep only the tail that might contain partial tag, respecting UTF-8 boundaries
-                        if tag_buffer.len() > MAX_TAG_LEN {
-                            let keep_from =
-                                find_utf8_boundary(&tag_buffer, tag_buffer.len() - MAX_TAG_LEN);
-                            tag_buffer.drain(..keep_from);
-                        }
-                    }
-                } else {
-                    // Look for closing tag
-                    if let Some(pos) = tag_buffer.find("</code>") {
-                        // Send everything before the closing tag
-                        if pos > 0 {
-                            let content = &tag_buffer[..pos];
-                            let _ = writer.write_all(content.as_bytes()).await;
-                            let _ = tx.send(content.to_string()).await;
-                        }
-                        // Remove everything up to and including the tag
-                        tag_buffer.drain(..pos + 7);
-                        let _ = writer.flush().await;
-                        break;
-                    } else {
-                        // Send all but the tail (which might contain partial closing tag)
-                        if tag_buffer.len() > MAX_TAG_LEN {
-                            let send_len =
-                                find_utf8_boundary(&tag_buffer, tag_buffer.len() - MAX_TAG_LEN);
-                            if send_len > 0 {
-                                let content = &tag_buffer[..send_len];
-                                let _ = writer.write_all(content.as_bytes()).await;
-                                let _ = tx.send(content.to_string()).await;
-                                tag_buffer.drain(..send_len);
-                            }
+                            writer.write_all(chunk.as_bytes()).await.unwrap();
+                            tx.send(chunk.to_string()).await.unwrap();
                         }
                     }
                 }
             }
         }
+
+        writer.flush().await.unwrap();
+
+        let mut guard = gen_map.lock().await;
+        guard.remove(&key);
+        notifier.notify_waiters();
     });
 
     let stream = stream! {
@@ -256,19 +186,6 @@ async fn generate(
         .header("Content-Type", mime_type.as_ref())
         .body(Body::from_stream(stream))
         .unwrap())
-}
-
-fn find_utf8_boundary(s: &str, mut pos: usize) -> usize {
-    // If pos is beyond string length, return string length
-    if pos >= s.len() {
-        return s.len();
-    }
-
-    // Walk backwards to find a valid UTF-8 character boundary
-    while pos > 0 && !s.is_char_boundary(pos) {
-        pos -= 1;
-    }
-    pos
 }
 
 async fn index(Query(params): Query<HashMap<String, String>>) -> Result<Body, StatusCode> {
