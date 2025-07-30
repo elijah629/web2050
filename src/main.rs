@@ -154,9 +154,7 @@ async fn generate(
                 if let Some(choice) = json.choices.first() {
                     if let Some(delta) = choice.delta.as_ref() {
                         if let Some(chunk) = &delta.content {
-                            println!("{chunk}");
                             let chunk = parser.feed(chunk);
-                            println!("{chunk}");
 
                             writer.write_all(chunk.as_bytes()).await.unwrap();
                             tx.send(chunk.to_string()).await.unwrap();
