@@ -1,6 +1,7 @@
 #![deny(clippy::all)]
 
 use async_stream::stream;
+
 use axum::body::Body;
 use axum::extract::{Query, State};
 use axum::handler::HandlerWithoutStateExt;
@@ -10,31 +11,16 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Router, middleware};
 
-use futures_util::TryStreamExt;
-use mime_guess::Mime;
-
 use std::collections::HashMap;
-use std::env::current_dir;
 use std::ffi::OsString;
 use std::io::BufRead;
-use std::path::PathBuf;
-use std::process::{Command, Stdio};
 use std::str::FromStr;
 use std::sync::Arc;
-
 use tokio::fs::{self, File};
 use tokio::sync::{Mutex, Notify, mpsc};
 
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufWriter};
-use tokio_util::io::StreamReader;
-
-use tower_http::services::ServeDir;
-
-use crate::ai::AIResponse;
-use crate::streaming_parser::StreamingParser;
 mod ai;
 mod assets;
-
 mod streaming_parser;
 
 type GenerationMap = Arc<Mutex<HashMap<OsString, Arc<Notify>>>>;
@@ -43,21 +29,14 @@ async fn generate(
     url: Uri,
     State(gen_map): State<GenerationMap>,
 ) -> Result<impl IntoResponse, StatusCode> {
+    use crate::ai::AIResponse;
+    use crate::streaming_parser::StreamingParser;
+    use futures_util::TryStreamExt;
+    use mime_guess::Mime;
     use std::path::Path;
-
-    // Generates the path
-    //
-    // For generation need to check the global mutex:
-    // If any files in the current route are currently being generated, we will hang the response
-    // until the generation for the sibling assets are done. This will be handled in order of
-    // request.
-    //
-    // Example:
-    // REQ /google.com/index.html - Not cached, start streaming and begin generation
-    // REQ /google.com/style.css  - This might come from the same user who requested index.html, as
-    // browsers will still fetch <link> and <script> even if the content is still half-baked. This
-    // request should HANG until index.html is done
-    // REQ /google.com/assets/icon.svg - Hang like above, since this req is on the same common route, /
+    use std::path::PathBuf;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufWriter};
+    use tokio_util::io::StreamReader;
 
     let url = url.path();
     let url = url.strip_prefix('/').unwrap_or(url);
@@ -187,6 +166,9 @@ async fn generate(
 }
 
 async fn index(Query(params): Query<HashMap<String, String>>) -> Result<Body, StatusCode> {
+    use std::env::current_dir;
+    use std::process::{Command, Stdio};
+
     let cwd = current_dir()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .join("internet");
@@ -331,6 +313,7 @@ async fn csp(req: Request<Body>, next: Next) -> Response<Body> {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use dotenvy::EnvLoader;
+    use tower_http::services::ServeDir;
 
     let env = EnvLoader::new().load()?;
     let gen_map: GenerationMap = Arc::new(Mutex::new(HashMap::new()));
