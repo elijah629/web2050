@@ -136,7 +136,9 @@ async fn generate(
                             let chunk = parser.feed(chunk);
 
                             writer.write_all(chunk.as_bytes()).await.unwrap();
-                            tx.send(chunk.to_string()).await.unwrap();
+
+                            // This fails if the user leave since nothing is recieving.
+                            let _ = tx.send(chunk.to_string()).await;
                         }
                     }
                 }
