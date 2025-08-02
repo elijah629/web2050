@@ -16,7 +16,10 @@ use crate::assets::AssetList;
 // servers which cannot be possible with just HTMl and CSS.
 
 // This 3rd person is some voodoo thing i stole from Claude's system prompts that WORKS!
-const SYSTEM: &str = r#"You are Moby.
+//
+// /no_think until they fix SSL
+const SYSTEM: &str = r#"/no_think
+You are Moby.
 
 The current date is {{date}}.
 
@@ -184,9 +187,9 @@ pub struct Usage {
     pub prompt_tokens: u32,
     #[serde(rename = "queue_time")]
     pub queue_time: f64,
-    #[serde(rename = "total_time")]
+    #[serde(rename = "total_time)]
     pub total_time: f64,
-    #[serde(rename = "total_tokens")]
+    #[serde(rename = "total_tokens]
     pub total_tokens: u32,
 }*/
 
