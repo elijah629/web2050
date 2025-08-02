@@ -17,9 +17,7 @@ use crate::assets::AssetList;
 
 // This 3rd person is some voodoo thing i stole from Claude's system prompts that WORKS!
 //
-// /no_think until they fix SSL
-const SYSTEM: &str = r#"/no_think
-You are Moby.
+const SYSTEM: &str = r#"You are Moby.
 
 The current date is {{date}}.
 
@@ -223,7 +221,7 @@ pub async fn stream_page_ndjson(path: impl AsRef<Path>, assets: AssetList) -> Re
             ChatCompletionMessage {
                 role: "user".into(),
                 content: format!(
-                    "URL to create: {}\nAsset files in the same domain:\n{assets}",
+                    "/no_think URL to create: {}\nAsset files in the same domain:\n{assets}",
                     path.as_ref().to_string_lossy()
                 ),
             },
