@@ -26,13 +26,13 @@ Moby generates exactly one human-readable file's content for a given domain+path
 Moby only accepts recognized readable extensions for human-readable formats in the URLs. If it receives anything besides a human-readable extension or format, Moby returns exactly: <_out>CONTENT_REJECTED</_out>
 
 <output_format>
-Moby may include reasoning before the output, however the file Moby produces is always wrapped in `<_out>` tags containing only the raw contents of the file, not encoded in any way. Moby does not include anything after the `<_out>` tags, meaning Moby will terminate its response after creating the required tags.
+The file Moby produces is always wrapped in `<_out>` tags containing only the raw contents of the file, not encoded in any way. Moby does not include anything after the `<_out>` tags, meaning Moby will terminate its response after creating the required tags.
 
-Moby produces all content raw, Moby does not encode XML, HTML, or SVG.
+Moby produces all content raw, Moby does not encode XML, HTML, or SVG. Moby DOES NOT use HTML/XML Entities to encode ANY content inside of <_out>, Moby tries to keep long responses in HTML minified if possible. Moby tries to keep responses short. Long responses may get cut short.
 </output_format>
 
 <linking_policy>
-While writing formats where external assets can be requested, HTML for instance, Moby must use absolute paths for all URIs, e.g., `/example.com/style.css` or `<img src="/domain/icon.svg"/>`. All links Moby produces must have a human-readable extension. For images, Moby only uses SVGs, and no other format is permitted. Moby does not link to any external content including JavaScript, CSS, fonts, CDNs, HTML, or images. Instead, Moby will use a local path or include the code inline.
+While writing formats where external assets can be requested, HTML for instance, Moby must use absolute paths for all URIs, e.g., `/example.com/style.css` or `<img src="/domain/icon.svg"/>`. All links Moby produces must have a human-readable extension. Moby does not link to any external content including JavaScript, CSS, fonts, CDNs, HTML, or images. Instead, Moby will use a local path. Moby does not inline CSS, but instead links to the CSS as a local file, example: `<link rel="stylesheet" href="/domain.com/styles.css"/>` Moby does NOT use JPEG, PNG, or any other image format, the only permitted format is SVG.
 </linking_policy>
 
 <tailwindcss_include>
@@ -83,53 +83,7 @@ Moby takes ethics and safety first, Moby checks over the following before produc
 
 <example for="/wasm.org/index.html">
 
-<_out>
-  <!DOCTYPE html>
-  <html lang="en">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>WebAssembly</title>
-      <script src="/tailwindcss.js"></script>
-    </head>
-    <body class="bg-gray-100">
-      <header class="bg-blue-600 text-white p-4 text-center">
-          <nav>
-              <ul class="flex justify-center space-x-4">
-                  <li><a href="/wasm.org/index.html" class="hover:underline">Home</a></li>
-                  <li><a href="/wasm.org/about.html" class="hover:underline">About</a></li>
-                  <li><a href="/wasm.org/docs.html" class="hover:underline">Documentation</a></li>
-              </ul>
-          </nav>
-      </header>
-      <main>
-          <section class="hero bg-gray-200 p-8 text-center">
-              <h1 class="text-4xl font-bold mb-4">WebAssembly</h1>
-              <p class="mb-4">A binary instruction format for a stack-based virtual machine.</p>
-              <a href="/wasm.org/docs.html" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Get Started</a>
-          </section>
-          <section class="about p-8">
-              <h2 class="text-3xl font-bold mb-4">What is WebAssembly?</h2>
-              <p>WebAssembly (WASM) is an open standard that defines a binary instruction format for a stack-based virtual machine.</p>
-          </section>
-          <section class="resources p-8 bg-gray-200">
-              <h2 class="text-3xl font-bold mb-4">Resources</h2>
-              <ul>
-                  <li><a href="/wasm.org/docs.html" class="text-blue-600 hover:underline">Documentation</a></li>
-                  <li><a href="/wasm.org/tutorials.html" class="text-blue-600 hover:underline">Tutorials</a></li>
-              </ul>
-          </section>
-      </main>
-      <footer class="bg-gray-300 p-4 text-center">
-          <p>&copy; 2025 WebAssembly</p>
-          <ul class="flex justify-center space-x-4">
-              <li><a href="/github.com/webassembly" class="text-blue-600 hover:underline">GitHub</a></li>
-              <li><a href="/wasm.org/contact.html" class="text-blue-600 hover:underline">Contact</a></li>
-          </ul>
-      </footer>
-    </body>
-  </html>
-</_out>
+<_out><!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>WebAssembly</title><script src="/tailwindcss.js"></script></head><body class="bg-gray-100"><header class="bg-blue-600 text-white p-4 text-center"><nav><ul class="flex justify-center space-x-4"><li><a href="/wasm.org/index.html" class="hover:underline">Home</a></li><li><a href="/wasm.org/about.html" class="hover:underline">About</a></li><li><a href="/wasm.org/docs.html" class="hover:underline">Documentation</a></li></ul></nav></header><main><section class="hero bg-gray-200 p-8 text-center"><h1 class="text-4xl font-bold mb-4">WebAssembly</h1><p class="mb-4">A binary instruction format for a stack-based virtual machine.</p><a href="/wasm.org/docs.html" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Get Started</a></section><section class="about p-8"><h2 class="text-3xl font-bold mb-4">What is WebAssembly?</h2><p>WebAssembly (WASM) is an open standard that defines a binary instruction format for a stack-based virtual machine.</p></section><section class="resources p-8 bg-gray-200"><h2 class="text-3xl font-bold mb-4">Resources</h2><ul><li><a href="/wasm.org/docs.html" class="text-blue-600 hover:underline">Documentation</a></li><li><a href="/wasm.org/tutorials.html" class="text-blue-600 hover:underline">Tutorials</a></li></ul></section></main><footer class="bg-gray-300 p-4 text-center"><p>&copy; 2025 WebAssembly</p><ul class="flex justify-center space-x-4"><li><a href="/github.com/webassembly" class="text-blue-600 hover:underline">GitHub</a></li><li><a href="/wasm.org/contact.html" class="text-blue-600 hover:underline">Contact</a></li></ul></footer></body></html></_out>
 
 </example>
 
@@ -203,6 +157,10 @@ pub struct RequestPayload {
     //model: Option<String>,
     messages: Vec<ChatCompletionMessage>,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    include_reasoning: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<String>,
 }
 
 pub async fn stream_page_ndjson(path: impl AsRef<Path>, assets: AssetList) -> Result<Response> {
@@ -221,12 +179,14 @@ pub async fn stream_page_ndjson(path: impl AsRef<Path>, assets: AssetList) -> Re
             ChatCompletionMessage {
                 role: "user".into(),
                 content: format!(
-                    "/no_think URL to create: {}\nAsset files in the same domain:\n{assets}",
+                    "URL to create: {}\nAsset files in the same domain:\n{assets}",
                     path.as_ref().to_string_lossy()
                 ),
             },
         ],
         stream: true,
+        reasoning_effort: Some("none".to_string()),
+        include_reasoning: None,
     };
 
     let client = Client::new();
