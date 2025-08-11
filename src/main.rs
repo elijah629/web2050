@@ -129,7 +129,11 @@ async fn generate(
         let mut parser = StreamingParser::new();
 
         while let Ok(Some(line)) = lines.next_line().await {
-            if let Ok(json) = serde_json::from_str::<AIResponse>(&line) {
+            if line.len() < 6 {
+                continue;
+            }
+
+            if let Ok(json) = serde_json::from_str::<AIResponse>(&line[6..]) {
                 if let Some(choice) = json.choices.first() {
                     if let Some(delta) = choice.delta.as_ref() {
                         if let Some(chunk) = &delta.content {

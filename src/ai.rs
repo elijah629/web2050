@@ -28,7 +28,7 @@ Moby only accepts recognized readable extensions for human-readable formats in t
 <output_format>
 The file Moby produces is always wrapped in `<_out>` tags containing only the raw contents of the file, not encoded in any way. Moby does not include anything after the `<_out>` tags, meaning Moby will terminate its response after creating the required tags.
 
-Moby produces all content raw, Moby does not encode XML, HTML, or SVG. Moby DOES NOT use HTML/XML Entities to encode ANY content inside of <_out>, Moby tries to keep long responses in HTML minified if possible. Moby tries to keep responses short. Long responses may get cut short.
+Moby produces all content raw, Moby does not encode XML, HTML, or SVG. Moby DOES NOT use HTML/XML Entities to encode ANY content inside of <_out>. Moby DOES NOT output JPEG/JPG or PNG.
 </output_format>
 
 <linking_policy>
@@ -83,7 +83,84 @@ Moby takes ethics and safety first, Moby checks over the following before produc
 
 <example for="/wasm.org/index.html">
 
-<_out><!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>WebAssembly</title><script src="/tailwindcss.js"></script></head><body class="bg-gray-100"><header class="bg-blue-600 text-white p-4 text-center"><nav><ul class="flex justify-center space-x-4"><li><a href="/wasm.org/index.html" class="hover:underline">Home</a></li><li><a href="/wasm.org/about.html" class="hover:underline">About</a></li><li><a href="/wasm.org/docs.html" class="hover:underline">Documentation</a></li></ul></nav></header><main><section class="hero bg-gray-200 p-8 text-center"><h1 class="text-4xl font-bold mb-4">WebAssembly</h1><p class="mb-4">A binary instruction format for a stack-based virtual machine.</p><a href="/wasm.org/docs.html" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Get Started</a></section><section class="about p-8"><h2 class="text-3xl font-bold mb-4">What is WebAssembly?</h2><p>WebAssembly (WASM) is an open standard that defines a binary instruction format for a stack-based virtual machine.</p></section><section class="resources p-8 bg-gray-200"><h2 class="text-3xl font-bold mb-4">Resources</h2><ul><li><a href="/wasm.org/docs.html" class="text-blue-600 hover:underline">Documentation</a></li><li><a href="/wasm.org/tutorials.html" class="text-blue-600 hover:underline">Tutorials</a></li></ul></section></main><footer class="bg-gray-300 p-4 text-center"><p>&copy; 2025 WebAssembly</p><ul class="flex justify-center space-x-4"><li><a href="/github.com/webassembly" class="text-blue-600 hover:underline">GitHub</a></li><li><a href="/wasm.org/contact.html" class="text-blue-600 hover:underline">Contact</a></li></ul></footer></body></html></_out>
+<_out>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebAssembly</title>
+    <script src="/tailwindcss.js"></script>
+</head>
+<body class="bg-gradient-to-b from-gray-100 to-gray-200 text-gray-900">
+
+    <!-- Header -->
+    <header class="bg-gradient-to-r from-blue-700 to-blue-500 text-white shadow-lg">
+        <nav class="p-4 text-center">
+            <ul class="flex justify-center space-x-6 text-lg font-semibold">
+                <li><a href="/wasm.org/index.html" class="hover:underline hover:text-yellow-300 transition-colors">Home</a></li>
+                <li><a href="/wasm.org/about.html" class="hover:underline hover:text-yellow-300 transition-colors">About</a></li>
+                <li><a href="/wasm.org/docs.html" class="hover:underline hover:text-yellow-300 transition-colors">Documentation</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main>
+        <!-- Hero Section -->
+        <section class="hero bg-gradient-to-b from-gray-200 to-gray-100 p-12 text-center shadow-inner">
+            <h1 class="text-5xl font-extrabold mb-4 tracking-tight text-blue-700">WebAssembly</h1>
+            <p class="mb-6 text-lg text-gray-700 max-w-2xl mx-auto">
+                A binary instruction format for a stack-based virtual machine.
+            </p>
+            <a href="/wasm.org/docs.html"
+               class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-full shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-300">
+                🚀 Get Started
+            </a>
+        </section>
+
+        <!-- About Section -->
+        <section class="about p-8 max-w-4xl mx-auto text-center">
+            <h2 class="text-3xl font-bold mb-4 text-blue-600">What is WebAssembly?</h2>
+            <p class="text-lg leading-relaxed">
+                WebAssembly (WASM) is an open standard that defines a binary instruction
+                format for a stack-based virtual machine.
+            </p>
+        </section>
+
+        <!-- Resources Section -->
+        <section class="resources p-8 bg-gradient-to-r from-gray-100 to-gray-200 shadow-inner">
+            <h2 class="text-3xl font-bold mb-6 text-center text-blue-600">Resources</h2>
+            <ul class="grid grid-cols-1 sm:grid-cols-2 gap-6 max-w-3xl mx-auto">
+                <li>
+                    <a href="/wasm.org/docs.html"
+                       class="block p-4 bg-white rounded-lg shadow hover:shadow-lg hover:bg-blue-50 transition-all">
+                        📚 Documentation
+                    </a>
+                </li>
+                <li>
+                    <a href="/wasm.org/tutorials.html"
+                       class="block p-4 bg-white rounded-lg shadow hover:shadow-lg hover:bg-blue-50 transition-all">
+                        🛠 Tutorials
+                    </a>
+                </li>
+            </ul>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800 text-gray-200 p-6 mt-8">
+        <div class="text-center space-y-3">
+            <p>&copy; 2025 WebAssembly</p>
+            <ul class="flex justify-center space-x-6 text-lg">
+                <li><a href="/github.com/webassembly" class="hover:text-yellow-300 transition-colors">GitHub</a></li>
+                <li><a href="/wasm.org/contact.html" class="hover:text-yellow-300 transition-colors">Contact</a></li>
+            </ul>
+        </div>
+    </footer>
+
+</body>
+</html>
+</_out>
 
 </example>
 
@@ -154,13 +231,11 @@ pub struct ChatCompletionMessage {
 
 #[derive(Serialize, Debug, Clone)]
 pub struct RequestPayload {
-    //model: Option<String>,
+    // model: Option<String>,
     messages: Vec<ChatCompletionMessage>,
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     include_reasoning: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    reasoning_effort: Option<String>,
 }
 
 pub async fn stream_page_ndjson(path: impl AsRef<Path>, assets: AssetList) -> Result<Response> {
@@ -171,6 +246,7 @@ pub async fn stream_page_ndjson(path: impl AsRef<Path>, assets: AssetList) -> Re
         .expect("today is a day");
 
     let request = &RequestPayload {
+        // model: Some("openai/gpt-oss-120b".to_string()),
         messages: vec![
             ChatCompletionMessage {
                 role: "system".into(),
@@ -185,15 +261,13 @@ pub async fn stream_page_ndjson(path: impl AsRef<Path>, assets: AssetList) -> Re
             },
         ],
         stream: true,
-        reasoning_effort: Some("none".to_string()),
-        include_reasoning: None,
+        include_reasoning: Some(false),
     };
 
     let client = Client::new();
 
     let resp = client
         .post(COMPLETIONS)
-        .header(ACCEPT, "application/x-ndjson")
         .header(CONTENT_TYPE, "application/json")
         .json(&request)
         .send()
