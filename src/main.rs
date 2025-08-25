@@ -133,6 +133,7 @@ async fn generate(
                 continue;
             }
 
+            // 6.. ignores data: or fails and skips when the response is `\n`
             if let Ok(json) = serde_json::from_str::<AIResponse>(&line[6..]) {
                 if let Some(choice) = json.choices.first() {
                     if let Some(delta) = choice.delta.as_ref() {

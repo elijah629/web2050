@@ -1,7 +1,4 @@
-use reqwest::{
-    Client, Response, Result,
-    header::{ACCEPT, CONTENT_TYPE},
-};
+use reqwest::{Client, Response, Result, header::CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use time::{OffsetDateTime, format_description};
@@ -196,31 +193,6 @@ pub struct Delta {
     pub content: Option<String>,
     // pub role: Option<String>,
 }
-
-/*
-#[derive(Debug, Deserialize)]
-pub struct XGroq {
-    pub id: String,
-    pub usage: Option<Usage>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Usage {
-    #[serde(rename = "completion_time")]
-    pub completion_time: f64,
-    #[serde(rename = "completion_tokens")]
-    pub completion_tokens: u32,
-    #[serde(rename = "prompt_time")]
-    pub prompt_time: f64,
-    #[serde(rename = "prompt_tokens")]
-    pub prompt_tokens: u32,
-    #[serde(rename = "queue_time")]
-    pub queue_time: f64,
-    #[serde(rename = "total_time)]
-    pub total_time: f64,
-    #[serde(rename = "total_tokens]
-    pub total_tokens: u32,
-}*/
 
 // Request
 #[derive(Serialize, Debug, Clone)]
